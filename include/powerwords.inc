@@ -15,7 +15,10 @@ public SharedPlugin __pl_powerwords =
 #endif
 };
 
-typedef PowerwordCallback = function void();
+/**
+ * Called when powerwords was loaded and is ready to accept registrations.
+ */
+forward void OnPowerwordsLoaded();
 
 /**
  * Create a new powerword for voting in chat.
@@ -74,6 +77,8 @@ native void Powerword_SetThreshold(const char[] word, float vote_percentage, int
  * @throws if the powerword does not exist
  */
 native void Powerword_SetCooldown(const char[] word, float cooldown);
+
+typedef PowerwordCallback = function void();
 
 /**
  * Add a callback to this powerword

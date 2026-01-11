@@ -85,8 +85,12 @@ enum struct PowerWord
     }
 
     void fire() {
-        Call_StartForward(this.callback);
-        Call_Finish();
+        if (this.callback != null) {
+            Call_StartForward(this.callback);
+            Call_Finish();
+        } else {
+            PrintToChatAll("%s No action was registerd on this powerword", CHAT_PREFIX);
+        }
         this.reset();
     }
 
@@ -105,7 +109,9 @@ enum struct PowerWord
 
     void close()
     {
-        delete this.callback;
+        if (this.callback != null) {
+            delete this.callback;
+        }
         this.reset();
         this.disabled = true;
         this.nextVote = 0.0;
