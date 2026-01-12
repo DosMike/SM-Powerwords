@@ -1,16 +1,14 @@
 #include <sdktools>
 #include <sdkhooks>
 #include <entity>
-#include "include/playerbits"
-#include "pw_natives.sp"
 #include <tf2_stocks>
+#include "include/playerbits"
 
 #pragma semicolon 1
 #pragma newdecls required
 #define PLUGIN_VERSION     "26w02a"
 
 #define CHAT_PREFIX        "\x01;[\x07;c86400POWERWORD\x01;] "
-
 
 public Plugin myinfo =
 {
@@ -41,6 +39,16 @@ enum struct PowerWord
     int minimum;
     float cooldown;
     float nextVote;
+    char customPrefix[32];
+    int adminFlagbits;
+
+    bool hasPermission(int client) {
+        if (this.adminFlagbits == 0) {
+            return true;
+        }
+        int userFlagbits = GetUserAdmin(client).GetFlags(Access_Effective);
+        return (this.adminFlagbits & userFlagbits) != 0;
+    }
 
     VoteChangeResult vote(int client, bool set=true)
     {
@@ -51,31 +59,35 @@ enum struct PowerWord
             return VCR_Cooldown;
         }
         if (set) {
-            int voted = this.votestate.Count();
             if (g_voters < this.minimum) {
-                if (voted) {
-                    this.votestate.Xor(this.votestate);
-                }
+                // reset, this vote is not yet active
+                this.votestate.XorBits(this.votestate);
                 return VCR_MoreClients;
             }
             if (this.votestate.Get(client)) {
                 return VCR_Unchanged;
             }
             this.votestate.Or(client);
-            float vote_percent = float(g_voters) / float(voted);
+            int voted = this.votestate.Count();
+            float vote_percent = float(voted) / float(g_voters);
 
-            if (vote_percent < this.percentage || voted < this.minimum) {
-                return VCR_Pending;
+            LogMessage("[POWERWORD] Vote controller: %d/%d && %.1f/%.1f, %d voters", voted, this.minimum, vote_percent * 100.0, this.percentage * 100.0, g_voters);
+            if (vote_percent >= this.percentage && voted >= this.minimum) {
+                this.nextVote = GetGameTime() + this.cooldown;
+                return VCR_Success;
             }
-            this.nextVote = GetGameTime() + this.cooldown;
-            return VCR_Success;
         } else {
             if (!this.votestate.Get(client)) {
                 return VCR_Unchanged;
             }
+            int voted = this.votestate.Count();
+            if (voted && g_voters < this.minimum) {
+                // reset, this vote is not yet active
+                this.votestate.XorBits(this.votestate);
+            }
             this.votestate.AndNot(client);
-            return VCR_Pending;
         }
+        return VCR_Pending;
     }
 
     /** call after a vote to prepare for the next */
@@ -84,10 +96,9 @@ enum struct PowerWord
         this.votestate.XorBits(this.votestate);
     }
 
-    void fire() {
-        if (this.callback != null) {
-            Call_StartForward(this.callback);
-            Call_Finish();
+    void fire(const char[] selfWord) {
+        if (this.callback != null && this.callback.FunctionCount > 0) {
+            Notify_PowerwordTrigger(this, selfWord);
         } else {
             PrintToChatAll("%s No action was registerd on this powerword", CHAT_PREFIX);
         }
@@ -97,7 +108,7 @@ enum struct PowerWord
     void init(float percentage, int minimum, float cooldown)
     {
         if (this.callback == null) {
-            this.callback = new PrivateForward(ET_Ignore, Param_String);
+            this.callback = new PrivateForward(ET_Ignore, Param_String, Param_Array, Param_Cell);
         }
         this.reset();
         this.disabled = false;
@@ -137,34 +148,28 @@ bool CreatePowerword(char word[24], float percentage, int minimum, float cooldow
     powerword.init(percentage, minimum, cooldown);
     powerWords.SetArray(word, powerword, sizeof(PowerWord));
 
-    char cmd[28];
-    FormatEx(cmd, sizeof(cmd), "sm_%s", word);
-    AddCommandListener(Command_Powerword, cmd);
-
     return true;
 }
 
-void DeletePowerword(char word[24])
+bool DeletePowerword(char word[24])
 {
     PowerWord powerword;
-    if (!powerWords.GetString(word, powerword, sizeof(PowerWord))) {
+    if (!powerWords.GetArray(word, powerword, sizeof(PowerWord))) {
         return false;
     }
 
     powerword.close();
     powerWords.Remove(word);
-    RemoveCommandListener(Command_Powerword, word);
 
     return true;
 }
 
-Action Command_Powerword(int client, const char[] command, int argc)
-{
-    CheckPowerword(client, command[3]);
-}
-
 public Action OnClientSayCommand(int client, const char[] command, const char[] sArgs)
 {
+    if (client == 0) {
+        return Plugin_Continue;
+    }
+
     for (int i; i < strlen(sArgs); i++) {
         if ('A' <= sArgs[i] <= 'Z') {
             sArgs[i] |= ' '; //to lowercase
@@ -175,7 +180,6 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
         ReplySource restore = SetCmdReplySource(SM_REPLY_TO_CHAT); //yea we come from chat
         CheckPowerword(client, sArgs);
         SetCmdReplySource(restore);
-        return Plugin_Handled;
     }
     return Plugin_Continue;
 }
@@ -187,7 +191,6 @@ void UpdateClientsForVote()
         if (IsClientInGame(i) && !IsFakeClient(i) && !IsClientSourceTV(i) && !IsClientReplay(i) && IsClientAuthorized(i) && GetClientTeam(i))
             g_voters += 1;
     }
-    return g_voters;
 }
 
 public void OnClientDisconnect(int client)
@@ -205,11 +208,17 @@ void CheckPowerword(int client, const char[] word) {
     PowerWord powerword;
 
     if (powerWords.GetArray(word, powerword, sizeof(PowerWord))) {
+        if (!powerword.hasPermission(client)) {
+            return; //silent fail
+        }
         UpdateClientsForVote();
         VoteChangeResult result = powerword.vote(client, true);
+        if (powerword.customPrefix[0] != 0) {
+            strcopy(prefix, sizeof(prefix), powerword.customPrefix);
+        }
         switch (result) {
             case VCR_Disabled:
-                {}
+                {/* pass */}
             case VCR_MoreClients:
                 ReplyToCommand(client, "%s Not enough players for %s (%d/%d)", prefix, word, g_voters, powerword.minimum);
             case VCR_Cooldown:
@@ -218,16 +227,30 @@ void CheckPowerword(int client, const char[] word) {
                 ReplyToCommand(client, "%s You have already voted for %s", prefix, word);
             case VCR_Pending: {
                 int votes = powerword.votestate.Count();
-                float percentage = float(votes) / float(g_voters) * 100.0;
-                int remainder;
-                PrintToChatAll("%s %N wants to %s, %d more required (%d/%d, %.1f%%/%.1f%%)", CHAT_PREFIX, client, votes, powerword.minimum, percentage, powerword.percentage);
+                float percentage = float(votes) / float(g_voters);
+
+                int directRemaining = powerword.minimum-votes;
+                int percentRemaining = RoundToCeil((powerword.percentage-percentage) * g_voters);
+                int remaining = (directRemaining > percentRemaining) ? directRemaining : percentRemaining; //max
+                if (remaining < 0) remaining = 0;
+
+                PrintToChatAll("%s %N wants to %s, %d more required (%d/%d, %.1f%%/%.1f%%)", CHAT_PREFIX,
+                        client, word, remaining,
+                        votes, powerword.minimum,
+                        percentage * 100.0, powerword.percentage * 100.0);
             }
             case VCR_Success: {
-                PrintToChatAll("%s %N wants to %s, powerword activate!");
-                powerword.fire();
+                int votes = powerword.votestate.Count();
+                float percentage = float(votes) / float(g_voters);
+
+                PrintToChatAll("%s %N wants to %s, powerword activate! (%d/%d, %.1f%%/%.1f%%)", CHAT_PREFIX,
+                        client, word,
+                        votes, powerword.minimum,
+                        percentage * 100.0, powerword.percentage * 100.0);
+                powerword.fire(word);
             }
         }
-        powerWords.SetArray(word, powerword);
+        powerWords.SetArray(word, powerword, sizeof(PowerWord));
     }
 }
 
@@ -239,9 +262,9 @@ void CheckAllPowerwords(int client) {
     for (int i; i<snap.Length; i++) {
         snap.GetKey(i, word, sizeof(word));
         powerWords.GetArray(word, powerword, sizeof(PowerWord));
-        if (powerword.vote(client, false) == VoteChangeResult.Success) {
+        if (powerword.vote(client, false) == VCR_Success) {
             PrintToChatAll("%s Vote quota for %s reached by disconnect", CHAT_PREFIX, word);
-            powerword.fire();
+            powerword.fire(word);
         }
         powerWords.SetArray(word, powerword, sizeof(PowerWord));
     }
@@ -267,6 +290,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     initNatives();
 }
 
+ConVar config_cvar;
 public void OnPluginStart()
 {
     powerWords        = new StringMap();
@@ -277,12 +301,28 @@ public void OnPluginStart()
     cvar.AddChangeHook(OnCvarVersionChange);
     cvar.SetString(PLUGIN_VERSION);
     delete cvar;
+    config_cvar = CreateConVar("sm_powerword_config", "default", "Filename in addons/sourcemod/config/powerword/, without extension", FCVAR_NONE);
+    config_cvar.AddChangeHook(OnCvarConfigChange);
 
-    RequestFrame(notifyRead);
+    RequestFrame(Notify_PowerwordReady);
+
+    RegAdminCmd("sm_powerword", Command_Force, ADMFLAG_CHEATS, "Force a powerword to trigger");
 }
 void OnCvarVersionChange(ConVar convar, const char[] oldValue, const char[] newValue)
 {
     if (!StrEqual(newValue, PLUGIN_VERSION)) convar.SetString(PLUGIN_VERSION);
+}
+void OnCvarConfigChange(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    UnloadConfig();
+    OnAllPluginsLoaded();
+}
+
+public void OnAllPluginsLoaded()
+{
+    char buffer[64];
+    config_cvar.GetString(buffer, sizeof(buffer));
+    LoadConfig(buffer);
 }
 
 public void OnServerExitHibernation()
@@ -294,3 +334,37 @@ public void OnMapStart()
 {
     ResetAllPowerwords();
 }
+
+Action Command_Force(int client, int args)
+{
+    char prefix[32] = CHAT_PREFIX;
+    if (GetCmdReplySource() == SM_REPLY_TO_CONSOLE) {
+        prefix = "[POWERWORD]";
+    }
+
+    if (args < 1) {
+        char command[32];
+        GetCmdArg(0, command, sizeof(command));
+        ReplyToCommand(client, "%s Usage: %s <powerword>", prefix, command);
+        return Plugin_Handled;
+    }
+
+    char word[24];
+    GetCmdArg(1, word, sizeof(word));
+    PowerWord powerword;
+    if (!powerWords.GetArray(word, powerword, sizeof(PowerWord))) {
+        ReplyToCommand(client, "%s Unknown powerword");
+    } else if (powerword.disabled) {
+        ReplyToCommand(client, "%s This powerword is currently disabled", prefix);
+    } else {
+        ShowActivity2(client, "[POWERWORD] ", "%N triggered the powerword %s", client, word);
+        powerword.nextVote = GetGameTime() + powerword.cooldown;
+        powerword.fire(word);
+        powerWords.SetArray(word, powerword, sizeof(PowerWord));
+    }
+
+    return Plugin_Handled;
+}
+
+#include "pw_natives.sp"
+#include "pw_config.sp"

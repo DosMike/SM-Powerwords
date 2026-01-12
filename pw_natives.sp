@@ -1,5 +1,5 @@
 #if !defined PLUGIN_VERSION
- #error Compiler main file!
+ #error Compile main file!
 #endif
 
 GlobalForward fwd_PowerwordsReady;
@@ -14,6 +14,8 @@ void initNatives() {
     CreateNative("Powerword_Reset", Native_Reset);
     CreateNative("Powerword_SetThreshold", Native_SetThreshold);
     CreateNative("Powerword_SetCooldown", Native_SetCooldown);
+    CreateNative("Powerword_SetPrefix", Native_SetPrefix);
+    CreateNative("Powerword_SetAdminflags", Native_SetAdminflags);
     CreateNative("Powerword_AddListener", Native_AddListener);
     CreateNative("Powerword_RemoveListener", Native_RemoveListener);
 
@@ -97,7 +99,7 @@ any Native_SetThreshold(Handle plugin, int numParams)
         ThrowNativeError(SP_ERROR_NATIVE, "Powerword %s not registered", buffer);
     }
     powerword.percentage = percentage;
-    powerword.minimum = powerword.minimum;
+    powerword.minimum = minimum;
     powerword.reset();
     powerWords.SetArray(buffer, powerword, sizeof(PowerWord));
     return 0;
@@ -115,6 +117,41 @@ any Native_SetCooldown(Handle plugin, int numParams)
     }
     powerword.cooldown = cooldown;
     powerword.reset();
+    powerWords.SetArray(buffer, powerword, sizeof(PowerWord));
+    return 0;
+}
+
+any Native_SetPrefix(Handle plugin, int numParams)
+{
+    char buffer[24];
+    GetNativeString(1, buffer, sizeof(buffer));
+    char prefix[32];
+    GetNativeString(1, prefix, sizeof(prefix));
+    TrimString(prefix);
+    if (strlen(prefix) == 0) {
+        ThrowNativeError(SP_ERROR_NATIVE, "Can't set empty prefix for powerword", buffer);
+    }
+
+    PowerWord powerword;
+    if (!powerWords.GetArray(buffer, powerword, sizeof(PowerWord))) {
+        ThrowNativeError(SP_ERROR_NATIVE, "Powerword %s not registered", buffer);
+    }
+    strcopy(powerword.customPrefix, sizeof(PowerWord::customPrefix), prefix);
+    powerWords.SetArray(buffer, powerword, sizeof(PowerWord));
+    return 0;
+}
+
+any Native_SetAdminflags(Handle plugin, int numParams)
+{
+    char buffer[24];
+    GetNativeString(1, buffer, sizeof(buffer));
+    int flagbits = GetNativeCell(2);
+
+    PowerWord powerword;
+    if (!powerWords.GetArray(buffer, powerword, sizeof(PowerWord))) {
+        ThrowNativeError(SP_ERROR_NATIVE, "Powerword %s not registered", buffer);
+    }
+    powerword.adminFlagbits = flagbits;
     powerWords.SetArray(buffer, powerword, sizeof(PowerWord));
     return 0;
 }
@@ -150,5 +187,17 @@ any Native_RemoveListener(Handle plugin, int numParams)
 void Notify_PowerwordReady()
 {
     Call_StartForward(fwd_PowerwordsReady);
+    Call_Finish();
+}
+
+void Notify_PowerwordTrigger(PowerWord powerword, const char[] word)
+{
+    int voters[MAXPLAYERS];
+    int numvoters = powerword.votestate.ToArray(voters, sizeof(voters));
+
+    Call_StartForward(powerword.callback);
+    Call_PushString(word);
+    Call_PushArray(voters, sizeof(voters));
+    Call_PushCell(numvoters);
     Call_Finish();
 }

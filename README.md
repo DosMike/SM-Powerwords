@@ -21,3 +21,25 @@ public void OnPowerwordsLoaded() {
     Powerword_AddListener("kill", OnPowerword_Kill);
 }
 ```
+
+## Config
+
+Not everyone can write plugins, so you can also load powerwords from config files.
+
+Create a config file of the following form in addons/sourcemod/configs/powerword/, the default is "default.cfg":
+
+```cfg
+"powerwords" {
+    "kill" {
+        "vote_minimum" 5
+        "vote_percentage" 66
+        "vote_cooldown" 60
+        "command" "sm_smite @all"
+        "prefix" "[KILL]"
+        "adminflags" "a"
+    }
+}
+```
+
+If you have multiple configs, you can load different configs by changing the convar sm_powerword_config to another filename (no extension).
+E.g. use `sm_cvar sm_powerword_config otherConfig` to load addons/sourcemod/configs/powerwords/otherConfig.cfg.

@@ -78,10 +78,38 @@ native void Powerword_SetThreshold(const char[] word, float vote_percentage, int
  */
 native void Powerword_SetCooldown(const char[] word, float cooldown);
 
-typedef PowerwordCallback = function void();
+/**
+ * Can be used to change the chat prefix for the vote controller. Supports \xXX colors.
+ * @param word - the trigger word
+ * @param prefix - the new chat prefix. Include brackets if you want them.
+ * @throws if the powerword does not exist
+ */
+native void Powerword_SetPrefix(const char[] word, const char[] prefix);
 
 /**
- * Add a callback to this powerword
+ * Change the admin flagbits required to be able to trigger the powerword.
+ * @param word - the trigger word
+ * @param adminflags - flag bits, the user only needs to have one of the admin flags.
+ * @throws if the powerword does not exist
+ */
+native void Powerword_SetAdminflags(const char[] word, int adminflags);
+
+typeset PowerwordCallback {
+    function void(); ///< No additional information
+    /**
+     * @param powerword - the word that was voted
+     */
+    function void(const char[] powerword);
+    /**
+     * @param powerword - the word that was voted
+     * @param clients - the client indices that voted
+     * @param numclients - the number of client indices filled into clients
+     */
+    function void(const char[] powerword, int[] clients, int numclients);
+}
+
+/**
+ * Add a callback to this powerword, firing when the vote succeeded.
  * This has no effect on a current cooldown, only later cooldowns.
  * @param word - the trigger word
  * @param callback - function to call when the powerword has been successfully voted
@@ -98,6 +126,7 @@ native void Powerword_AddListener(const char[] word, PowerwordCallback callback)
  */
 native void Powerword_RemoveListener(const char[] word, PowerwordCallback callback);
 
+
 #if !defined REQUIRE_PLUGIN
 public void __pl_powerwords_SetNTVOptional()
 {
@@ -108,6 +137,8 @@ public void __pl_powerwords_SetNTVOptional()
     MarkNativeAsOptional("Powerword_Reset");
     MarkNativeAsOptional("Powerword_SetThreshold");
     MarkNativeAsOptional("Powerword_SetCooldown");
+    MarkNativeAsOptional("Powerword_SetPrefix");
+    MarkNativeAsOptional("Powerword_SetAdminflags");
     MarkNativeAsOptional("Powerword_AddListener");
     MarkNativeAsOptional("Powerword_RemoveListener");
 }
