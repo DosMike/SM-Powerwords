@@ -83,6 +83,12 @@ void LoadConfig(const char[] filename = "default")
             strcopy(powerword.customPrefix, sizeof(PowerWord::customPrefix), buffer);
             updated = true;
         }
+        config.GetString("cooldown_group", buffer, sizeof(buffer));
+        TrimString(buffer);
+        if (buffer[0] != 0) {
+            strcopy(powerword.cooldownGroup, sizeof(PowerWord::cooldownGroup), buffer);
+            updated = true;
+        }
         config.GetString("adminflags", buffer, sizeof(buffer));
         TrimString(buffer);
         if (buffer[0] != 0) {

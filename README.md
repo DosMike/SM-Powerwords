@@ -34,6 +34,7 @@ Create a config file of the following form in addons/sourcemod/configs/powerword
         "vote_minimum" 5
         "vote_percentage" 66
         "vote_cooldown" 60
+        "cooldown_group" "deadly words" // can be used to share a cooldown between words and configs
         "command" "sm_smite @all"
         "prefix" "[KILL]"
         "adminflags" "a"
